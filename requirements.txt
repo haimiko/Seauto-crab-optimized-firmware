@@ -1,0 +1,6 @@
+bleak
+numpy
+opencv-python
+pillow
+capstone
+unicorn

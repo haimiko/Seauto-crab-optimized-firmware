@@ -1,0 +1,19 @@
+# No firmware, logs or run data in this repository.
+*.bin
+*.hex
+*.elf
+*.apk
+*.log
+*.jsonl
+*.pkl
+*.npz
+*.mov
+*.MOV
+*.mp4
+build/
+tests/images/
+analysis/stock-vs-optimized/data/
+
+# Python
+__pycache__/
+*.pyc
