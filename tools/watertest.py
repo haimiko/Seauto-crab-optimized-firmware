@@ -9,7 +9,9 @@
 
 before: one Bluetooth connection. Reads the add-on status, the app settings and (diag-2.8+)
 the navigation status; optionally sets the volatile navigation mode/settings (FC4B, reset at
-every boot); arms the recorder (cleared, on-change by default). Saves before.json.
+every boot); arms the recorder (cleared, on-change by default). Saves before.json. Optional from
+diag-3.4 on: its defaults run the optimized Floor and the recorder from every boot, so a run
+started from the button needs only `after`, which then notes in before.json that nothing was read.
 after: one connection. Checks it is still the same boot (otherwise RAM, the recorder and the
 map are gone), reads the robot's heading first (yaw is zero where the cycle started, so with
 the robot set down facing the way it went in this is the heading drift of the whole run),
@@ -42,13 +44,14 @@ def load(name):
 
 cc = load("crab_ctl")
 # +4 (diag-3.3): the optimized lanes without the map's memory (no scans or new-floor side ends)
+# +8 (diag-3.4): no side ends for no headway, so floor-noheadway is the diag-3.3 controller
 NAV_FLAGS = {"stock": 0, "floor": 1, "standard": 2, "both": 3,
-             "floor-nomemory": 5, "standard-nomemory": 6, "both-nomemory": 7}
+             "floor-nomemory": 5, "standard-nomemory": 6, "both-nomemory": 7, "floor-noheadway": 9}
 APP_MODES = {2: "Floor", 3: "Walls", 4: "Waterline", 7: "Standard"}
 MODE_FOR = {"floor": 2, "standard": 7}
 ATTITUDE = 0x200003F8                  # vendor roll, pitch, yaw: int32 in 0.1 deg
 FIND_TRIES = 3                          # a weak advertiser can miss one 10 s scan
-STATUS_KEEP = ("build_id", "protocol", "sram32k", "boot_count", "ms", "faults", "probe_faults",
+STATUS_KEEP = ("build_id", "protocol", "sram32k", "boot_count", "ms", "frames", "faults", "probe_faults",
                "ring_cap", "seq", "period_ms", "rec_flags", "emergency_count", "battery_floor",
                "floor_tripped", "floor_saved", "bpr19_at_boot")
 
@@ -139,7 +142,7 @@ async def before(crab, session, nav=None, settings=(), mode=None, period_ms=0, o
     flags = cc.REC_CLEAR | (cc.REC_ONCHANGE if on_change else 0) | (cc.REC_STOPFULL if stop_full else 0)
     await crab.diag(cc.diag_control_frame(period_ms, flags))
     armed = await crab.diag(cc.diag_status_frame())
-    record["recorder"] = {"period_ms": armed["period_ms"], "flags": armed["rec_flags"],
+    record["recorder"] = {"frames": armed["frames"], "period_ms": armed["period_ms"], "flags": armed["rec_flags"],
                           "capacity": armed["ring_cap"], "seq": armed["seq"]}
     if armed["period_ms"] != period_ms or armed["rec_flags"] != flags & ~cc.REC_CLEAR:
         raise ValueError(f"recorder did not arm as requested: {record['recorder']}")
@@ -171,12 +174,24 @@ async def before(crab, session, nav=None, settings=(), mode=None, period_ms=0, o
 
 def restart_since(first, status, at):
     """Why the add-on's RAM at `after` is not the one `before` armed, or None. A restart soon
-    after `before` leaves a longer uptime at `after` (seen on a real run), so the recorder that
-    `before` armed counts too: only a restart turns it off."""
+    after `before` leaves a longer uptime at `after` (seen on a real run), so the add-on's count of
+    frames answered counts too: only a restart takes it back. So does the boot count, on a reset
+    that keeps the add-on's RAM, and recorder flags other than the ones `before` armed, since every
+    boot arms flags 6. A session whose `before` did not keep the frames (before diag-3.4) has only
+    the recorder: there only a restart or a failed `after` turned it off. With no `before` there is
+    nothing to compare."""
+    if first["time"] == "not run":
+        return None
     if status["build_id"] != first["status"]["build_id"]:
         return "the build changed"
-    if status["ms"] < first["status"]["ms"] or (first.get("recorder", {}).get("flags")
-                                               and not status["rec_flags"]):
+    armed = first.get("recorder", {})
+    frames, recorder = status.get("frames"), status["rec_flags"]
+    boots = first["status"].get("boot_count"), status.get("boot_count")
+    if (status["ms"] < first["status"]["ms"]
+            or (frames is not None and frames <= armed.get("frames", 0))
+            or (None not in boots and boots[0] != boots[1])
+            or (recorder and recorder != armed.get("flags", recorder))
+            or ("frames" not in armed and armed.get("flags") and not recorder)):
         power_on = dt.datetime.fromisoformat(at) - dt.timedelta(milliseconds=status["ms"])
         later = (power_on - dt.datetime.fromisoformat(first["time"])).total_seconds()
         return (f"powered on at {power_on:%H:%M:%S}"
@@ -184,22 +199,36 @@ def restart_since(first, status, at):
     return None
 
 
+def no_before(status):
+    """What before.json holds for a run started from the button."""
+    return {"time": "not run",
+            "note": "No `before` connection was made for this run. `after` wrote this file; nothing in "
+                    "it was read before the run.",
+            "status": {"build_id": status["build_id"], "ms": 0, "faults": "not read", "probe_faults": "not read"},
+            "warnings": ["no `before` connection: battery, app mode and navigation settings at the start "
+                         "were not read"],
+            "app": {"battery": "not read", "mode": "not read"}, "navigation": None, "recorder": {"flags": 0}}
+
+
 async def after(crab, session, log=print):
-    first = json.loads((session / "before.json").read_text(encoding="utf-8"))
     if (session / "after.json").exists():
         raise ValueError(f"{session} already has an after.json")
     status = await crab.diag(cc.diag_status_frame())
+    if not (session / "before.json").exists():
+        session.mkdir(parents=True, exist_ok=True)
+        save(session / "before.json", no_before(status))
+    first = json.loads((session / "before.json").read_text(encoding="utf-8"))
     await crab.diag_learn_rc_count()
     record = {"time": stamp(), "status": {k: status[k] for k in STATUS_KEEP}, "warnings": []}
     record["attitude"] = await attitude(crab)      # first, while it sits as it was set down
     record["reset_flags"] = await reset_flags(crab)
     restart = restart_since(first, status, record["time"])
     same_boot = restart is None
-    record["same_boot"] = same_boot
+    record["same_boot"] = None if first["time"] == "not run" else same_boot    # None: not checked
     if not same_boot:
         record["warnings"].append(f"the robot restarted since `before` ({restart}): the recorder "
-                                  "and navigation settings were lost (RAM); a map is of the "
-                                  "cycle after the restart")
+                                  "and navigation settings were lost (RAM); a map, and from "
+                                  "diag-3.4 the recorder, are of the time after the restart")
         flags = record["reset_flags"]
         record["warnings"].append(
             f"reset flags {flags['value']} ({', '.join(flags['set']) or 'none'}): "
@@ -208,9 +237,9 @@ async def after(crab, session, log=print):
                "the power-on flag is still there: not a watchdog reset"
                + (" (a software reset is on record)" if "software" in flags["set"] else "")))
     await crab.diag(cc.diag_control_frame(0, 0))   # stop recording, keep the samples
-    samples = await crab.diag_recorder(0) if same_boot else []
+    samples = await crab.diag_recorder(0) if same_boot or status["seq"] else []
     record["recorder"] = {"samples": len(samples), "written": status["seq"],
-                          "capacity": status["ring_cap"]}
+                          "capacity": status["ring_cap"], "after_restart": not same_boot}
     if same_boot and status["seq"] > status["ring_cap"]:
         record["warnings"].append(f"recorder overflowed: {status['seq']} written, the oldest "
                                   f"{status['seq'] - status['ring_cap']} were overwritten")
@@ -220,6 +249,10 @@ async def after(crab, session, log=print):
                      "sha256": hashlib.sha256(data).hexdigest() if data else None}
     if same_boot and data is None:
         record["warnings"].append("no map (needs diag-3.0 and a cleaning cycle since power-on)")
+    if samples and data and samples[-1]["t_ms"] < load("navmap").parse_map(data)[0]["start_ms"]:
+        record["warnings"].append("the recorder ended before this map's cycle began: it holds an "
+                                  "earlier run in this boot, since it was full or an earlier "
+                                  "`after` stopped it")
     record["app"] = await app_settings(crab)
     if samples:
         text = io.StringIO()
@@ -249,8 +282,8 @@ def report(session, speed_cm_s=None, drift=None, log=print):
              ("App mode", f"{APP_MODES.get(first['app'].get('mode'), first['app'].get('mode'))} → "
                           f"{APP_MODES.get(last['app'].get('mode'), last['app'].get('mode'))}"),
              ("Navigation flags", first["navigation"]["flags"] if first.get("navigation") else "not available"),
-             ("Same boot at `after`", "yes" if last["same_boot"] and not restart
-              else f"NO: {restart or 'RAM lost'}"),
+             ("Same boot at `after`", "not checked: no `before`" if first["time"] == "not run"
+              else "yes" if last["same_boot"] and not restart else f"NO: {restart or 'RAM lost'}"),
              ("Add-on faults before / after", f"{first['status']['faults']} / {last['status']['faults']}"),
              ("Battery floor", f"{last['status']['battery_floor']} % (tripped: {last['status']['floor_tripped']})")]
     if last.get("reset_flags"):
@@ -274,6 +307,8 @@ def report(session, speed_cm_s=None, drift=None, log=print):
                           f"shifts the sonar found blocked {nav['stuck']}; sides ended for no new "
                           f"floor {nav['stale']}, by the lane cap {nav['capped']}; scans {nav['scans']} "
                           f"({nav['steered']} chose a heading by the map)"))
+        if nav.get("nav_version", 2) >= 4:
+            facts.append(("Controller (diag-3.4)", f"sides ended for no headway {nav['unmoved']}"))
     if (session / "recorder.csv").exists():
         samples = nr.load_recording(session / "recorder.csv")
         rec = nr.analyze(samples)
@@ -282,8 +317,9 @@ def report(session, speed_cm_s=None, drift=None, log=print):
                          "capture": None}
         save(session / "recorder_report.json", rec)
         (session / "recorder_report.md").write_bytes(nr.markdown(rec).encode("utf-8"))
-        facts.append(("Recorder", f"{rec['sample_count']} samples over {rec['observed_span_s']:.0f} s; "
-                                  f"fault codes {rec['fault_codes'] or 'none'}"))
+        facts.append(("Recorder", f"{rec['sample_count']} samples over {rec['observed_span_s']:.0f} s"
+                                  + (", all after the restart" if last["recorder"].get("after_restart") else "")
+                                  + f"; fault codes {rec['fault_codes'] or 'none'}"))
     if (session / "map.bin").exists():
         header, visited, pieces = nm.parse_map((session / "map.bin").read_bytes())
         info = nm.summary(header, visited, pieces, speed_cm_s, drift)
@@ -302,7 +338,8 @@ def report(session, speed_cm_s=None, drift=None, log=print):
                 [f"after: {w}" for w in last.get("warnings", [])])
     if restart and last["same_boot"]:
         warnings.append(f"report: the robot restarted since `before` ({restart}); `after` did not "
-                        "notice: the recorder and navigation settings were lost, the program was stock")
+                        "notice: the recorder and navigation settings went back to the build's defaults "
+                        "(before diag-3.4 that means stock; from it, optimized Floor)")
     if warnings:
         lines += ["## Warnings", ""] + [f"- {w}" for w in warnings] + [""]
     lines += ["## Files", "",

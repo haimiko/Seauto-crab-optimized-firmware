@@ -380,6 +380,15 @@ ok(decoded3["nav_version"] == 3 and decoded3["axis"] == -1790 and decoded3["bloc
 ok(m.parse_diag_reply(nav_reply, m.diag_nav_status_frame())["nav_version"] == 2,
    "FC4C layout 2 (diag-2.8..3.2) still decoded")
 ok(m.diag_nav_frame("flags", 5)[2:6] == bytes([0, 0, 5, 0]), "flags 5: Floor without the map's memory")
+ok(m.diag_nav_frame("flags", 9)[2:6] == bytes([0, 0, 9, 0]), "flags 9: Floor as diag-3.3")
+refuses(lambda: m.diag_nav_frame("flags", 16), "flags 16 refused")
+# diag-3.4: layout 4 appends the lowest range at each lane end, the count since a fall, and sides ended.
+payload4 = bytes([4]) + struct.pack("<8IIiii9I4I8B8I", *range(1, 9), 5000, -1790, 900, 1, 3, 0, 8, 0, 0, 2, 7, 0, 1,
+                                    1, 2, 3, 4, *range(8), 7, 2, 0, 3, 1, 0x00720021, 5, 1)
+reply4 = m.frame(bytes([1, 0x4C, len(payload4)]) + payload4)
+decoded4 = m.parse_diag_reply(reply4, m.diag_nav_status_frame())
+ok((decoded4["nav_version"], decoded4["axis"], decoded4["steered"], decoded4["ends"], decoded4["still"],
+    decoded4["unmoved"], decoded4["scores"][7]) == (4, -1790, 1, 0x00720021, 5, 1, 7), "FC4C layout 4 (diag-3.4) decoded")
 refuses(lambda: m.parse_diag_reply(m.frame(bytes([1, 0x4C, 128]) + nav3_payload[:-1]),
                                    m.diag_nav_status_frame()), "short layout 3 refused")
 old_layout = struct.pack("<B8IIiii8I", 1, 3, 34, 30, 1000, 20, 10, 3, 1500,

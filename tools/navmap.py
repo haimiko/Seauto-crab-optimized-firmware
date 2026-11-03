@@ -66,14 +66,19 @@ def parse_map(data):
             wrap += 65536
         last = t_ds + wrap
         pieces.append({"t_s": last / 10, "yaw": yaw, "dur_s": dur_cs / 100, "drive": drive,
-                       "contact": bool(flags & 1)})
+                       "contact": bool(flags & 1), **end_marks(flags & 2, flags & 4)})
     if header["cur_drive"] and header["cur_ms"]:   # the piece still open at download time
         start = (header["cur_t_ms"] - header["start_ms"]) / 1000
         drive = round(header["cur_drive_sum"] / header["cur_ms"]) if version >= 3 else header["cur_drive"]
         pieces.append({"t_s": start, "dur_s": header["cur_ms"] / 1000, "drive": drive,
                        "yaw": header["cur_yaw"] + header["cur_turn_sum"] // header["cur_ms"],
-                       "contact": False})
+                       "contact": False,
+                       **(end_marks(header["flags"] & 32, header["flags"] & 64) if version >= 3 else {})})
     return header, visited, pieces
+
+
+def end_marks(after_floor, held):
+    return {**({"after_floor": True} if after_floor else {}), **({"held": True} if held else {})}
 
 
 def integrate(header, pieces, drift, step=0.05):
@@ -82,6 +87,8 @@ def integrate(header, pieces, drift, step=0.05):
     points, contacts = [(x, y)], []
     speed = header["speed70"] / 100
     for p in pieces:
+        if p.get("after_floor"):        # the map stopped here too (diag-3.4): a short drive to a
+            continue                    # wall, then commands to motors held stopped ("held")
         h = math.radians(p["yaw"] / 10 - drift * (p["t_s"] + p["dur_s"] / 2) / 60)
         length = speed * p["drive"] / 70 * p["dur_s"]
         n = max(1, int(abs(length) / step))

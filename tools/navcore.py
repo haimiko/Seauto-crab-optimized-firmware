@@ -2,15 +2,16 @@
 
 No vendor peripherals here: navsim supplies imperfect observations and models motion.
 It needs a compiled add-on, whose source is not published yet.
-diag-3.3 cores (symbol nav_layout 3) also take the raw sonar and the map; older cores
-(diag-2.8..3.2, 13-word state) are still executable for comparisons.
+diag-3.3 and later cores (symbol nav_layout 3 or 4) also take the raw sonar and the map; older
+cores (diag-2.8..3.2, 13-word state) are still executable for comparisons.
 """
 import struct
 from unicorn import Uc, UC_ARCH_ARM, UC_MODE_THUMB, UC_MODE_MCLASS
 from unicorn.arm_const import (UC_ARM_REG_R0, UC_ARM_REG_R1, UC_ARM_REG_R2,
                                UC_ARM_REG_R3, UC_ARM_REG_SP, UC_ARM_REG_LR, UC_ARM_REG_PC)
 
-STATE = struct.Struct("<Iiii9I4I8B5I")  # nav_state_t, layout 3 (diag-3.3)
+STATE = struct.Struct("<Iiii9I4I8B8I")  # nav_state_t, layout 4 (diag-3.4)
+STATE_V3 = struct.Struct("<Iiii9I4I8B5I")   # layout 3 (diag-3.3)
 STATE_V2 = struct.Struct("<Iiii9I")     # layout 2, 13 words (diag-2.8..3.2)
 MAP_BYTES = 0x1800                      # the map (layout 3); parsed by tools/navmap.py
 STATE_AT, CONFIG_AT, OUTPUT_AT, MAP_AT, STACK_AT, RETURN = (
@@ -27,7 +28,7 @@ class Core:
         self.entry = symbols["nav_tick"]
         self.layout = struct.unpack_from("<I", code, symbols["nav_layout"] - 0x080186C0)[0] \
             if "nav_layout" in symbols else 2
-        self.layout_struct = STATE if self.layout >= 3 else STATE_V2
+        self.layout_struct = {4: STATE, 3: STATE_V3}.get(self.layout, STATE_V2)
         self.config = tuple(config) if config is not None else struct.unpack_from(
             "<8I", code, symbols["nav_defaults"] - 0x080186C0)
         self.reset()
@@ -39,7 +40,7 @@ class Core:
     @property
     def state(self):
         """Layout 3: 13 words as before, then echo, cells, fresh, scan, 8 scores, stuck,
-        stale, capped, scans, steered."""
+        stale, capped, scans, steered. Layout 4 adds ends, still, unmoved."""
         return self.layout_struct.unpack(self.uc.mem_read(STATE_AT, self.layout_struct.size))
 
     def _call(self, entry, registers, stacked, name):
@@ -68,6 +69,9 @@ class Core:
     def map_reset(self, speed70=None):
         self._call(self.symbols["map_reset"], (MAP_AT, self.config[2] if speed70 is None else speed70),
                    (), "map_reset")
+
+    def map_state(self, yaw, state):
+        self._call(self.symbols["map_state"], (MAP_AT, yaw, state), (), "map_state")
 
     def map_tick(self, now, yaw, drive, tilt, sonar, wet=True):
         # tilt: the larger of |roll| and |pitch| in 0.1 degree, as diag_map_c passes it.

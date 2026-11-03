@@ -476,7 +476,10 @@ PATTERNS = {"stock-floor": stock_floor, "stock-standard": stock_standard, "propo
 # The historical 'proposed' function above is retained as an explicitly idealized
 # reference, excluded from the deliverable comparison. It sees the ground-truth map.
 COMPILED = None
-NAV_CONFIG = None   # None: the compiled boot defaults; studies may set the 8 FC4B values
+# The compiled boot defaults (flags 1 from diag-3.4), but at the plant's speed: their 23 cm/s is the
+# real robot's, and at V70 it would time a 45 cm shift. Studies may set the 8 FC4B values; None
+# takes the compiled defaults as they are.
+NAV_CONFIG = (1, 30, 30, 1000, 20, 10, 3, 1500)
 NAV_MAPPED = True   # False: a diag-3.3 core without the map (as with 16 KB SRAM)
 
 

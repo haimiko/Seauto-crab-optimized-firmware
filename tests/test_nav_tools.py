@@ -265,7 +265,7 @@ class CompiledCoreSimulationTests(unittest.TestCase):
     def tearDown(self):
         s.environment()
         s.configure({})
-        s.COMPILED, s.NAV_CONFIG, s.NAV_MAPPED = None, None, True
+        s.COMPILED, s.NAV_CONFIG, s.NAV_MAPPED = None, (1, 30, 30, 1000, 20, 10, 3, 1500), True
 
     def test_lanes_leave_the_nook_run_four_was_trapped_in(self):
         # Run 4's restart in the nook with run 4's speed and settings: the shift check ends
@@ -333,6 +333,17 @@ class MapRenderTests(unittest.TestCase):
         for k, piece in enumerate(pieces):
             m.PIECE.pack_into(data, m.MAP_HEADER.size + m.MAP_DIM * m.MAP_DIM // 8 + 8 * k, *piece)
         return bytes(data)
+
+    def test_pieces_after_the_battery_floor_are_not_travel(self):
+        # diag-3.4 marks them (flags bit 1, and bit 2 once the motors are held). The heading stays.
+        pieces = ((0, 0, 1000, 70, 0), (110, 900, 6000, 77, 2), (700, 900, 6000, 77, 6))
+        header, _, parsed = m.parse_map(self.blob(pieces=pieces, flags=96))
+        self.assertEqual([p.get("after_floor", False) for p in parsed], [False, True, True])
+        self.assertEqual([p.get("held", False) for p in parsed], [False, False, True])
+        self.assertEqual(parsed[1]["yaw"], 900)
+        points, _ = m.integrate(header, parsed, 0)
+        self.assertAlmostEqual(points[-1][0], 3.0, delta=.01)    # 10 s at 30 cm/s along +x
+        self.assertAlmostEqual(points[-1][1], 0.0, delta=.01)
 
     def test_parse_scale_choice_contacts_and_render(self):
         pieces = ((0, 0, 1000, 70, 0), (110, 900, 500, 70, 1))     # 3 m along +x, 1.5 m along +y

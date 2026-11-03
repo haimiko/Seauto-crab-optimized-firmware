@@ -5,7 +5,8 @@ reached 77 % by minute 30 and stock 54 %. They ended close, 91 % against 88 %. S
 small strips.** This is one run of each, so it is a first measurement and not a verdict.
 
 Run 8 is the optimized program and run 9 is stock, both on the same robot. The raw video and the robot's logs are not
-published. `video_track.py`, `video_study.py` and `video_figure.py` are here as a record of the method.
+published. `video_track.py`, `video_study.py` and `video_figure.py` are here as a record of the method. Run 8 used the
+build before diag-3.4, so these numbers are from before the no-headway rule.
 
 Run 9 was started from the robot's button, with no PC connection beforehand. So its recorder is empty and its starting
 battery was not read. Its map and path log were downloaded afterwards, and they confirm the stock program ran.
@@ -136,10 +137,12 @@ steadily over 69 lanes, by 234° in an hour.
 run 9 is the only stock run among them. So it is a lead and not a result. It suggests the gyro warming up or settling. A
 start from the button looks like run 9, so it matters to anything that relies on the gyro over a cycle.
 
-## Finding 5: at the battery floor, a pin at the wall and no return to the start
+## Finding 5: at the battery floor, a stop at the wall and no return to the start
 
-Within about 20 s of the floor the robot was against a wall, and it stayed there until the video ended 6.8 minutes later.
-The path log shows drive 47 to 77 for 170 s of that, hardly turning. Run 8 did the same, so this is vendor behaviour too.
+Within about 7 s of the floor the robot was against a wall, and it stayed there until the video ended 6.8 minutes later,
+within 2 pixels. The path log goes on showing drive 47 to 77, but that is the command. The vendor keeps computing it while
+its motor stage holds the motors stopped, which it does at a close echo, a steep tilt, a collision or 200 s at the latest.
+Run 8 did the same, so this is vendor behaviour too.
 
 Run 9 ended about 4 m from where it went in, across the pool. Run 8 ended about 2 m along the same wall as it started. One
 run each way fits the firmware having no return-to-start, and run 8's ending looks like chance.
@@ -167,15 +170,15 @@ earlier and reading its curve on the same floor gives:
   with the motors. In one run the reading stayed at 35 % until one sample of 20 % during a hard turn. At rest afterwards
   it reads 25 to 35 %.
 - **How much battery life this buys is not measured.** A shallower discharge is generally kinder to a lithium pack, but
-  these percentages are not true state of charge. Stopping the push at the wall saves energy at no cost in cleaning, so
-  that comes first: the robot drove for 5.7 to 29.7 minutes after the floor across these runs.
+  these percentages are not true state of charge.
 
 ## Next
 
-1. Make the optimized Floor run from the button or the app, with no PC.
-2. End a side when lanes make no sideways progress, and teach the simulator these stays first.
-3. Stop the map counting after the battery floor, and stop the push at the wall.
-4. Try a lane spacing nearer 30 to 35 cm, once the brush width is measured.
-5. Test the drift lead on the bench: read the gyro heading with the robot still, straight after power-on and a few
+Done in diag-3.4: the optimized Floor runs from the button or the app with no PC, a side ends when lanes make no headway,
+and the map stops counting at the battery floor. It has not yet been in the water. Still to do:
+
+1. Film diag-3.4 from the same camera position, for the first whole-pool comparison.
+2. Teach the simulator these stays, so it can judge rules like this one by itself.
+3. Try a lane spacing nearer 30 to 35 cm, once the brush width is measured.
+4. Test the drift lead on the bench: read the gyro heading with the robot still, straight after power-on and a few
    minutes later.
-6. Film the next build from the same camera position, for the first whole-pool comparison.

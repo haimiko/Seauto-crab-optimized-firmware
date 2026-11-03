@@ -3,14 +3,16 @@
 Reverse engineering of the SEAUTO Crab robotic pool vacuum, an add-on that changes how it cleans the floor, and a video
 method that measures the result.
 
-**No firmware is published yet.** This repository holds the desktop tools, the test scripts and the measurements. The
-firmware will follow as a release when it is ready.
+**Firmware:** diag-3.4 is on the [Releases](../../releases) page as a pre-release. It has passed emulation and offline
+checks but has not yet run on a robot. This repository holds the desktop tools, the test scripts and the measurements.
+The firmware's source is not published yet.
 
 ## The result so far
 
 ![Optimized against stock on the same floor](analysis/stock-vs-optimized/video/same_floor.png)
 
-Both programs were filmed in the same pool, and compared only on the 15.6 m² of floor that both cameras saw.
+Both programs were filmed in the same pool, and compared only on the 15.6 m² of floor that both cameras saw. The
+optimized run used the build before diag-3.4, so it does not include the no-headway rule described below.
 
 | Same floor | Optimized | Stock |
 |---|---|---|
@@ -109,9 +111,10 @@ The features overridden this way:
 
 | Feature | Stock | Override | Still the vendor's |
 |---|---|---|---|
-| Floor pattern | Timed shifts, 166° U-turns, no memory | Parallel lanes held by the gyro. The sonar checks each shift. A side ends on two blocked shifts, three short lanes, four lanes that add almost no new floor, or 12 m of shifts. A new sweep turns through eight headings and starts toward the least visited floor | Motor control, tilt and bump detection, wall handling, recovery, cycle timer |
+| Floor pattern | Timed shifts, 166° U-turns, no memory | Parallel lanes held by the gyro. The sonar checks each shift. A side ends on two blocked shifts, three short lanes, four lanes that add almost no new floor, 12 m of shifts, or no headway. A new sweep turns through eight headings and starts toward the least visited floor | Motor control, tilt and bump detection, wall handling, recovery, cycle timer |
 | Stuck detection | 16 windows of stillness | 3 windows, about 33 s, and the sonar must also show no progress. With no echo the stock rule applies | The recovery moves themselves |
 | Battery floor | Runs down to its own empty level | Default 20 %. At or below the set level, the add-on sets the vendor's battery-empty latch once | All end-of-battery behaviour |
+| Stop after the battery floor | Drives to a wall, then stops at a close echo, a steep tilt, a collision or 200 s | Also stops when a near echo holds still for 3 s, and at 90 s at the latest | The motor stop itself |
 | Power off | Can be blocked after a lift out of the water mid-cycle | A hold of 3 s or more arms the vendor's idle-off countdown. Tried on the bench, but the original cause is not confirmed | The shutdown itself |
 | Diagnostics | None | Private Modbus functions read memory, the recorder, the map and the status | All stock frames |
 | Settings | Stock settings only | Navigation settings live in RAM and reload at boot. The battery floor is kept in a small journal in free flash | Stock settings |
@@ -120,8 +123,15 @@ The private functions had to fit the vendor's frame parser, which closes any fra
 every request is 8 bytes, and 32-bit addresses go through an address latch. The vendor code also has other parsers on the same
 bytes, so `crab_ctl.py` refuses any frame that could look like their input.
 
-**A current limit:** optimized mode is switched on per run over Bluetooth from a PC. The next build will make it the default
-for Floor, from the button or the app, with no PC.
+**Self-contained from diag-3.4:** the optimized Floor is what every boot starts with, so choosing Floor with the button or
+in the app runs it with no PC. The tests drive this through the vendor's real button handler. Other modes stay stock, and
+one Bluetooth setting turns it off until the next boot.
+
+**The no-headway rule, new in diag-3.4.** On a wall oblique to the lanes, one lane end is blocked every time and the other
+is free. The robot then goes back and forth on one strip, while two blocked shifts never come in a row. The sonar shows it:
+the range at the start of a shift should fall from one lane pair to the next, and here it does not. So six shifts beside a
+blocked one with no fall of one lane spacing end the side. Replayed on real recorders it fires once or twice a run, on the
+known traps. One of those fires is checkable on camera: the 5 minutes it would have saved gained 0.3 % of new floor.
 
 ### 5. Make a bad build recoverable
 
@@ -172,13 +182,13 @@ and the camera measured 65 % of the floor stock ever reached. So the ground trut
 | `tests/` | Offline tests, with no robot needed |
 | `analysis/stock-vs-optimized/` | The analysis, its pictures and its scripts |
 
-Tools that talk to the add-on (`watertest.py`, `diag_snapshot.py` and the `diag-*` commands of `crab_ctl.py`), and the
-simulator, need the firmware that is not published yet. They fail with an error until then.
+Tools that talk to the add-on (`watertest.py`, `diag_snapshot.py` and the `diag-*` commands of `crab_ctl.py`) need a robot
+running the release. The simulator needs the firmware source, which is not published yet, and says so.
 
 ## Not in this repository
 
-- Any firmware image, vendor or modified
-- The add-on's source, the image builder and the emulator harness, which come with the firmware release
+- Any firmware image in the code itself: the built image is only on the Releases page
+- The add-on's source, the image builder and the emulator harness
 - Decompiled code
 - Logs, run data and raw video
 
@@ -204,6 +214,12 @@ python -I tools/crab_ctl.py scan
 
 ```bash
 python -I tools/crab_ctl.py --address AA:BB:CC:DD:EE:FF info
+```
+
+Installing the release over Bluetooth, on your own robot and at your own risk (see Safety):
+
+```bash
+python -I tools/crab_ctl.py --address AA:BB:CC:DD:EE:FF ota seauto-crab-diag-3.4.bin --yes
 ```
 
 Video tracking works on any fixed overhead video:

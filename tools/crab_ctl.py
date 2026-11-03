@@ -113,15 +113,17 @@ DIAG_MAX_READ = 200
 DIAG_NAV_CONFIG = ("flags", "spacing_cm", "speed_cm_s", "back_ms", "floor_min", "wall_min",
                    "still_windows", "wall_back_ms")
 # flags: bit0 Floor, bit1 Standard, bit2 lanes without the map's memory (diag-3.3; older
-# add-ons refuse 4..7)
-DIAG_NAV_LIMITS = ((0, 7), (10, 80), (10, 80), (100, 3000), (1, 120), (1, 30), (1, 15), (500, 9000))
+# add-ons refuse 4..7), bit3 no side ends for no headway (diag-3.4; older add-ons refuse 8..15)
+DIAG_NAV_LIMITS = ((0, 15), (10, 80), (10, 80), (100, 3000), (1, 120), (1, 30), (1, 15), (500, 9000))
 DIAG_NAV_FIELDS_V2 = DIAG_NAV_CONFIG + ("since", "axis", "heading", "lateral", "phase", "side",
                                        "lanes", "short_lanes", "transfer_ms", "mode", "sweeps",
                                        "timeouts", "blocked")
-DIAG_NAV_FIELDS = DIAG_NAV_FIELDS_V2 + ("echo", "cells", "fresh", "scan", "scores", "stuck",
-                                        "stale", "capped", "scans", "steered")
+DIAG_NAV_FIELDS_V3 = DIAG_NAV_FIELDS_V2 + ("echo", "cells", "fresh", "scan", "scores", "stuck",
+                                           "stale", "capped", "scans", "steered")
+DIAG_NAV_FIELDS = DIAG_NAV_FIELDS_V3 + ("ends", "still", "unmoved")
 DIAG_NAV_STATUS_V2 = struct.Struct("<B8IIiii9I")   # layout version 2 (diag-2.8..3.2)
-DIAG_NAV_STATUS = struct.Struct("<B8IIiii9I4I8B5I")  # layout version 3
+DIAG_NAV_STATUS_V3 = struct.Struct("<B8IIiii9I4I8B5I")  # layout version 3 (diag-3.3)
+DIAG_NAV_STATUS = struct.Struct("<B8IIiii9I4I8B8I")  # layout version 4
 MAP_ADDR, MAP_BYTES, MAP_MAGIC = 0x20006800, 0x1800, 0x3150414D   # diag-3.0+ map + path log (tools/navmap.py)
 MAP_VERSIONS = (2, 3)                                              # diag-3.0, diag-3.1 and later
 F12 = b"\x1b[24~"   # firmware main loop: enter bootloader update mode
@@ -182,7 +184,7 @@ def diag_floor_frame(percent: int) -> bytes:
 
 def diag_nav_frame(setting: str, value: int) -> bytes:
     """Volatile setting; flags 0 stock, 1 Floor, 2 Standard, 3 both, +4 without the map's
-    memory (diag-3.3). No flash write."""
+    memory (diag-3.3), +8 no side ends for no headway (diag-3.4). No flash write."""
     if setting not in DIAG_NAV_CONFIG:
         raise ValueError("unknown navigation setting")
     key = DIAG_NAV_CONFIG.index(setting)
@@ -232,13 +234,15 @@ def parse_diag_reply(resp: bytes, request: bytes | None = None) -> dict:
             if (payload[:1], len(payload)) == (b"\x02", DIAG_NAV_STATUS_V2.size):
                 values = DIAG_NAV_STATUS_V2.unpack(payload)
                 return {"nav_version": 2, **dict(zip(DIAG_NAV_FIELDS_V2, values[1:]))}
-            if (payload[:1], len(payload)) != (b"\x03", DIAG_NAV_STATUS.size):
+            layouts = {b"\x03": (DIAG_NAV_STATUS_V3, DIAG_NAV_FIELDS_V3), b"\x04": (DIAG_NAV_STATUS, DIAG_NAV_FIELDS)}
+            layout, fields = layouts.get(payload[:1], (None, None))
+            if not layout or len(payload) != layout.size:
                 raise ValueError("bad navigation status length/version (requires diag-2.8)")
-            values = DIAG_NAV_STATUS.unpack(payload)
+            values = layout.unpack(payload)
             words = len(DIAG_NAV_FIELDS_V2) + 4              # through "scan"
-            return {"nav_version": 3, **dict(zip(DIAG_NAV_FIELDS, values[1:words + 1])),
+            return {"nav_version": payload[0], **dict(zip(fields, values[1:words + 1])),
                     "scores": list(values[words + 1:words + 9]),
-                    **dict(zip(DIAG_NAV_FIELDS[-5:], values[words + 9:]))}
+                    **dict(zip(fields[words + 1:], values[words + 9:]))}
         if fc == 0x43:
             if len(payload) != DIAG_STATUS.size:
                 raise ValueError("bad diagnostic status length (other add-on version?)")
@@ -974,7 +978,7 @@ def main():
     ds.add_argument("--bootloader", action="store_true", help="reset into update mode")
     df = sub.add_parser("diag-floor", help="save battery discharge floor, 0..100 percent (0 disables)")
     df.add_argument("percent", type=integer)
-    dn = sub.add_parser("diag-nav", help="volatile navigation setting (default off; requires diag-2.4)")
+    dn = sub.add_parser("diag-nav", help="volatile navigation setting (requires diag-2.4)")
     dn.add_argument("setting", choices=DIAG_NAV_CONFIG)
     dn.add_argument("value", type=integer)
     sub.add_parser("diag-nav-status", help="navigation configuration/state (requires diag-2.8)")
