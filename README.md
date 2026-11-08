@@ -236,6 +236,13 @@ Installing the release over Bluetooth, on your own robot and at your own risk (s
 python -I tools/crab_ctl.py --address AA:BB:CC:DD:EE:FF ota seauto-crab-diag-3.5.bin --yes
 ```
 
+If blocks keep getting NAKs, the robot's Bluetooth module is losing writes. Send more slowly, in the stock app's
+23-byte writes with a pause after each, and add `--in-bootloader` if the robot is already waiting for the image:
+
+```bash
+python -I tools/crab_ctl.py --address AA:BB:CC:DD:EE:FF ota seauto-crab-diag-3.5.bin --yes --gap-ms 40 --chunk 23
+```
+
 Video tracking works on any fixed overhead video:
 
 ```bash

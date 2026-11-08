@@ -870,11 +870,34 @@ async def _wait_byte(q: asyncio.Queue, wanted: set, timeout: float):
     return None
 
 
+OTA_GAP_MS = 10            # pause after each unacknowledged BLE write during an update
+OTA_GAP_MS_MAX = 500
+OTA_CHUNK_MIN, OTA_CHUNK_MAX = 20, 244
+
+
+def ota_pacing(chunk_arg, gap_ms: int, mtu: int):
+    """BLE write size and pause for `ota`. The default write is the largest the link allows, up to 244 bytes.
+    A smaller write or a longer pause gives the robot's BLE module time to pass each write on to the bootloader:
+    lost writes show up as NAKs, and three attempts in a row once lost them at 244 bytes with 10 ms pauses."""
+    if not 0 <= gap_ms <= OTA_GAP_MS_MAX:
+        raise ValueError(f"--gap-ms must be 0..{OTA_GAP_MS_MAX}")
+    largest = max(OTA_CHUNK_MIN, min(OTA_CHUNK_MAX, (mtu or 23) - 3))
+    if chunk_arg is None:
+        return largest, gap_ms
+    if not OTA_CHUNK_MIN <= chunk_arg <= OTA_CHUNK_MAX:
+        raise ValueError(f"--chunk must be {OTA_CHUNK_MIN}..{OTA_CHUNK_MAX}")
+    return min(chunk_arg, largest), gap_ms
+
+
 async def cmd_ota(args):
     image = open(args.image, "rb").read()
     why = check_image(image)
     if why:
         sys.exit(f"refusing {args.image}: {why}")
+    try:
+        ota_pacing(args.chunk, args.gap_ms, OTA_CHUNK_MAX + 3)
+    except ValueError as e:
+        sys.exit(str(e))
     blocks = list(xmodem_blocks(image))
     print(f"{args.image}: {len(image)} bytes -> {len(blocks)} blocks of 1 KB")
     if not args.yes:
@@ -884,14 +907,15 @@ async def cmd_ota(args):
     try:
         char = client.services.get_characteristic(WRITE_UUID)
         with_resp = "write" in char.properties
-        chunk = max(20, min(244, (client.mtu_size or 23) - 3))
-        print(f"BLE chunk {chunk} B, write-with-response={with_resp}")
+        chunk, gap_ms = ota_pacing(args.chunk, args.gap_ms, client.mtu_size)
+        print(f"BLE chunk {chunk} B, write-with-response={with_resp}"
+              + ("" if with_resp else f", {gap_ms} ms after each write"))
 
         async def send(data: bytes):
             for i in range(0, len(data), chunk):
                 await client.write_gatt_char(WRITE_UUID, data[i:i + chunk], response=with_resp)
-                if not with_resp:
-                    await asyncio.sleep(0.01)
+                if not with_resp and gap_ms:
+                    await asyncio.sleep(gap_ms / 1000)
 
         if not args.in_bootloader:
             print("sending F12 (ESC[24~) -> robot reboots into its bootloader")
@@ -954,6 +978,12 @@ def main():
                    help="robot is already waiting in its bootloader: skip the F12 trigger")
     o.add_argument("--log", default="ota_session.log", help="raw notification log file")
     integer = lambda value: int(value, 0)
+    o.add_argument("--gap-ms", type=integer, default=OTA_GAP_MS,
+                   help=f"pause after each BLE write, 0..{OTA_GAP_MS_MAX} ms (default {OTA_GAP_MS}); "
+                        "raise it, e.g. to 40, if blocks keep getting NAKs")
+    o.add_argument("--chunk", type=integer, default=None,
+                   help=f"bytes per BLE write, {OTA_CHUNK_MIN}..{OTA_CHUNK_MAX} (default: the largest the link allows); "
+                        "the stock app writes 23")
     dr = sub.add_parser("diag-read", help="read memory through the diagnostic add-on")
     dr.add_argument("memory_address", type=integer)
     dr.add_argument("length", type=integer)

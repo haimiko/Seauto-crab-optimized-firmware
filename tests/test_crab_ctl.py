@@ -412,5 +412,14 @@ else:
     ok(True, "FC4C reassembles at every fragment boundary")
 nav_loop.close()
 
+# --- ota pacing: --chunk and --gap-ms, no BLE connection -----------------------------------
+ok(m.ota_pacing(None, 10, 247) == (244, 10), "ota default: largest write the link allows, 10 ms")
+ok(m.ota_pacing(None, 10, 23) == (20, 10), "ota default on a 23-byte MTU: 20-byte writes")
+ok(m.ota_pacing(23, 40, 247) == (23, 40), "ota --chunk 23 --gap-ms 40 taken as given")
+ok(m.ota_pacing(244, 0, 100) == (97, 0), "ota --chunk never above what the link allows")
+for bad_chunk, bad_gap in ((19, 10), (245, 10), (None, -1), (None, 501)):
+    refuses(lambda: m.ota_pacing(bad_chunk, bad_gap, 247), f"ota pacing chunk={bad_chunk} gap={bad_gap} refused")
+ok(m.OTA_GAP_MS == 10, "ota default pause unchanged at 10 ms")
+
 print("\n" + (f"ALL PASS ({checks} checks)" if fails == 0 else f"{fails} FAILURES ({checks} checks)"))
 raise SystemExit(1 if fails else 0)
