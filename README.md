@@ -253,6 +253,19 @@ python -I tools/videotrack.py frame run.mp4 --at-s 60 --out frame.png
 python -I tools/videotrack.py track run.mp4 --calib calib.json --out result --start-s 30
 ```
 
+## License
+
+- **Code:** everything under `tools/` and `tests/`, and the Python scripts under `analysis/`, is under the PolyForm
+  Noncommercial License 1.0.0, in [LICENSE.md](LICENSE.md). Personal, hobby, research, educational and nonprofit use are
+  allowed. Commercial use is not.
+- **Write-ups and pictures:** the Markdown files and the images are under Creative Commons
+  Attribution-NonCommercial-ShareAlike 4.0 International, in [LICENSE-DOCS.txt](LICENSE-DOCS.txt).
+- **Release images:** the add-on in them is under the PolyForm license as well. They also contain the vendor's firmware,
+  which this project does not own and cannot license.
+- **Commercial use** needs a separate license. Open an issue on this repository to ask for one.
+
+This is source-available software rather than open source in the strict sense, because commercial use is excluded.
+
 ## Safety
 
 This is for your own robot, and you use it at your own risk. Writing firmware can leave a robot that needs a wired recovery
