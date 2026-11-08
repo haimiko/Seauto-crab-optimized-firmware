@@ -175,9 +175,10 @@ earlier and reading its curve on the same floor gives:
 ## Next
 
 Done in diag-3.4: the optimized Floor runs from the button or the app with no PC, a side ends when lanes make no headway,
-and the map stops counting at the battery floor. It has not yet been in the water. Still to do:
+and the map stops counting at the battery floor. diag-3.4 and diag-3.5 have since been filmed three times, in the
+[five-run analysis](../optimized-runs/analysis.md). Still to do:
 
-1. Film diag-3.4 from the same camera position, for the first whole-pool comparison.
+1. Film the far lobe, for the first whole-pool comparison.
 2. Teach the simulator these stays, so it can judge rules like this one by itself.
 3. Try a lane spacing nearer 30 to 35 cm, once the brush width is measured.
 4. Test the drift lead on the bench: read the gyro heading with the robot still, straight after power-on and a few

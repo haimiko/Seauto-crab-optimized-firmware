@@ -3,39 +3,47 @@
 Reverse engineering of the SEAUTO Crab robotic pool vacuum, an add-on that changes how it cleans the floor, and a video
 method that measures the result.
 
-**Firmware:** diag-3.4 is on the [Releases](../../releases) page as a pre-release. It has passed emulation and offline
-checks but has not yet run on a robot. This repository holds the desktop tools, the test scripts and the measurements.
-The firmware's source is not published yet.
+**Firmware:** diag-3.5 is on the [Releases](../../releases) page. It has run a full cycle in the water, started from the
+robot's button with no PC. This repository holds the desktop tools, the test scripts and the measurements. The
+firmware's source is not published yet.
 
 ## The result so far
 
-![Optimized against stock on the same floor](analysis/stock-vs-optimized/video/same_floor.png)
+![Four long runs on the same floor, to minute 80](analysis/optimized-runs/video/same_floor_80_min.png)
 
-Both programs were filmed in the same pool, and compared only on the 15.6 m² of floor that both cameras saw. The
-optimized run used the build before diag-3.4, so it does not include the no-headway rule described below.
+Five runs were filmed in the same pool: stock once, and the optimized program four times across three builds. They are
+compared only on floor that every camera saw and every run could be followed on.
 
-| Same floor | Optimized | Stock |
-|---|---|---|
-| Cleaned by minute 30 | 77 % | 54 % |
-| Time to 75 % | 23 min | 38 min |
-| Time to 90 % | 72 min | Not reached |
-| Cleaned at the battery floor | 91 % | 88 % |
-| Time moving | 60 % | 43 % |
-| Lanes per minute | 2.05 | 1.45 |
+| Share of the same floor cleaned | Minute 10 | Minute 30 | Minute 45 |
+|---|---|---|---|
+| Stock, run 9 | 57.5 % | 57.5 % | 82.6 % |
+| diag-3.3, run 8 | 66.6 % | 96.0 % | 98.2 % |
+| diag-3.4, run 10 | 50.3 % | 76.8 % | 81.6 % |
+| diag-3.4, run 11 | 76.9 % | 92.8 % | 97.0 % |
+| diag-3.5, run 12 | 73.6 % | 96.2 % | 98.8 % |
 
-Stock also spent 40 of its 93 minutes on two small strips, gaining only 1.3 m² of new floor.
+That floor is 10.7 m². At minute 80, on the 10.9 m² the four long runs share, diag-3.5 had cleaned 99.5 % and stock
+93.4 %. diag-3.5 ran 109.7 minutes to its battery floor, the longest run yet.
+
+**Before:** stock spent 40 of its 93 minutes on two small strips, gaining only 1.3 m² of new floor.
 
 ![Stock path in ten-minute steps](analysis/stock-vs-optimized/video/panels.png)
 
+**After:** diag-3.5 kept moving across the floor the camera sees. The far lobe, at the top, is hidden from this camera
+by the sky's reflection, and the camera stopped at minute 82.6.
+
+![diag-3.5 path in ten-minute steps](analysis/optimized-runs/video/run12_panels.png)
+
 **Read these numbers with care:**
 
-- This is one run of each program, in one pool.
-- The camera lost the robot for 42 % of the optimized run and 7 % of the stock run, so the optimized line is a lower bound.
-- The far lobe of the pool is not compared, because the first camera position could not see it.
+- This is one run of each build, in one pool, from different starting points and camera positions.
+- The optimized runs differ among themselves, 77 to 96 % at minute 30, and three runs of the same pattern cannot say why.
+- The far lobe of the pool is not compared, because no camera position so far could see it well.
 - Coverage assumes a 40 cm brush, which has not been measured.
 
-The [full analysis](analysis/stock-vs-optimized/analysis.md) has the checks, the optimized path pictures and five
-findings.
+The [five-run analysis](analysis/optimized-runs/analysis.md) has the tables, the checks and the battery floor change.
+The [stock against optimized analysis](analysis/stock-vs-optimized/analysis.md) has the first comparison in detail,
+with five findings.
 
 ## The robot
 
@@ -113,7 +121,7 @@ The features overridden this way:
 |---|---|---|---|
 | Floor pattern | Timed shifts, 166° U-turns, no memory | Parallel lanes held by the gyro. The sonar checks each shift. A side ends on two blocked shifts, three short lanes, four lanes that add almost no new floor, 12 m of shifts, or no headway. A new sweep turns through eight headings and starts toward the least visited floor | Motor control, tilt and bump detection, wall handling, recovery, cycle timer |
 | Stuck detection | 16 windows of stillness | 3 windows, about 33 s, and the sonar must also show no progress. With no echo the stock rule applies | The recovery moves themselves |
-| Battery floor | Runs down to its own empty level | Default 20 %. At or below the set level, the add-on sets the vendor's battery-empty latch once | All end-of-battery behaviour |
+| Battery floor | Runs down to its own empty level | Default 20 %. Once the reading has stayed at or below the set level for a minute, the add-on sets the vendor's battery-empty latch | All end-of-battery behaviour |
 | Stop after the battery floor | Drives to a wall, then stops at a close echo, a steep tilt, a collision or 200 s | Also stops when a near echo holds still for 3 s, and at 90 s at the latest | The motor stop itself |
 | Power off | Can be blocked after a lift out of the water mid-cycle | A hold of 3 s or more arms the vendor's idle-off countdown. Tried on the bench, but the original cause is not confirmed | The shutdown itself |
 | Diagnostics | None | Private Modbus functions read memory, the recorder, the map and the status | All stock frames |
@@ -132,6 +140,11 @@ is free. The robot then goes back and forth on one strip, while two blocked shif
 the range at the start of a shift should fall from one lane pair to the next, and here it does not. So six shifts beside a
 blocked one with no fall of one lane spacing end the side. Replayed on real recorders it fires once or twice a run, on the
 known traps. One of those fires is checkable on camera: the 5 minutes it would have saved gained 0.3 % of new floor.
+
+**The battery floor waits a minute, new in diag-3.5.** The vendor's percentage is a step table on the cell voltage under
+load, so it dips at the pump's start and in hard turns. Earlier builds tripped on the first reading at or below the floor, and
+one run ended on a single 20 % reading from a steady 35 %. diag-3.5 trips only after a full minute of readings at or
+below it, and a reading above it starts the minute again.
 
 ### 5. Make a bad build recoverable
 
@@ -180,7 +193,8 @@ and the camera measured 65 % of the floor stock ever reached. So the ground trut
 | `tools/fwlook.py`, `fwmap.py`, `fwdis.py`, `fwdeep.py`, `fwregs.py`, `fwram.py`, `fwlift.py` | Static analysis of an image you supply |
 | `tools/dexstrings.py` | Strings from an Android app's code |
 | `tests/` | Offline tests, with no robot needed |
-| `analysis/stock-vs-optimized/` | The analysis, its pictures and its scripts |
+| `analysis/stock-vs-optimized/` | The first stock against optimized analysis, its pictures and its scripts |
+| `analysis/optimized-runs/` | Five filmed runs compared, and the diag-3.5 run |
 
 Tools that talk to the add-on (`watertest.py`, `diag_snapshot.py` and the `diag-*` commands of `crab_ctl.py`) need a robot
 running the release. The simulator needs the firmware source, which is not published yet, and says so.
@@ -219,7 +233,7 @@ python -I tools/crab_ctl.py --address AA:BB:CC:DD:EE:FF info
 Installing the release over Bluetooth, on your own robot and at your own risk (see Safety):
 
 ```bash
-python -I tools/crab_ctl.py --address AA:BB:CC:DD:EE:FF ota seauto-crab-diag-3.4.bin --yes
+python -I tools/crab_ctl.py --address AA:BB:CC:DD:EE:FF ota seauto-crab-diag-3.5.bin --yes
 ```
 
 Video tracking works on any fixed overhead video:
